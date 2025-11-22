@@ -1,0 +1,622 @@
+#include <Arduino.h>
+#include <SPI.h>
+#include <Adafruit_BMP085.h>
+#include <Wire.h>
+#include <Adafruit_Sensor.h>
+#include <Adafruit_HMC5883_U.h>
+#include <Adafruit_ADXL345_U.h>
+#include <SPort.h>
+
+
+
+/*************************************************** 
+  This is an example for the BMP085 Barometric Pressure & Temp Sensor
+
+  Designed specifically to work with the Adafruit BMP085 Breakout 
+  ----> https://www.adafruit.com/products/391
+
+  These pressure and temperature sensors use I2C to communicate, 2 pins
+  are required to interface
+  Adafruit invests time and resources providing this open source code, 
+  please support Adafruit and open-source hardware by purchasing 
+  products from Adafruit!
+
+  Written by Limor Fried/Ladyada for Adafruit Industries.  
+  BSD license, all text above must be included in any redistribution
+ ****************************************************/
+
+// Connect VCC of the BMP085 sensor to 3.3V (NOT 5.0V!)
+// Connect GND to Ground
+// Connect SCL to i2c clock - on '168/'328 Arduino Uno/Duemilanove/etc thats Analog 5
+// Connect SDA to i2c data - on '168/'328 Arduino Uno/Duemilanove/etc thats Analog 4
+// EOC is not used, it signifies an end of conversion
+// XCLR is a reset pin, also not used here
+
+Adafruit_BMP085 bmp;
+
+/* Assign a unique ID to this sensor at the same time */
+Adafruit_HMC5883_Unified mag = Adafruit_HMC5883_Unified(12345);
+Adafruit_ADXL345_Unified accel = Adafruit_ADXL345_Unified(12345);
+
+
+sensors_event_t accel_event;
+sensors_event_t mag_event;
+
+int sensor_read_timeout = 100; 
+int log_write_timeout = 500; 
+
+//variables to store sensor data
+float alt; 
+float temp;
+long pressure;
+long SL_pressure; 
+float accel_X, accel_Y, accel_Z;
+float mag_X, mag_Y, mag_Z;
+long time_tag; 
+float heading;
+float headingDegrees;
+
+long sensor_time, read_time, t1, t2;
+
+//FRSKy sensors
+SPortHub hub(0x12, D8);
+SimpleSPortSensor sensor_alt(0x0400);
+
+
+
+
+
+void displaySensorDetails(void)
+{
+  sensor_t sensor;
+  mag.getSensor(&sensor);
+  Serial.println("------------------------------------");
+  Serial.print  ("Sensor:       "); Serial.println(sensor.name);
+  Serial.print  ("Driver Ver:   "); Serial.println(sensor.version);
+  Serial.print  ("Unique ID:    "); Serial.println(sensor.sensor_id);
+  Serial.print  ("Max Value:    "); Serial.print(sensor.max_value); Serial.println(" uT");
+  Serial.print  ("Min Value:    "); Serial.print(sensor.min_value); Serial.println(" uT");
+  Serial.print  ("Resolution:   "); Serial.print(sensor.resolution); Serial.println(" uT");  
+  Serial.println("------------------------------------");
+  Serial.println("");
+  delay(500);
+}
+
+void print_header(Stream &refSer) {
+  String header = "";
+  header += "millis, ";
+  header += "time_tag, ";
+  header += "Accel_X, ";
+  header += "Accel_Y, ";
+  header += "Accel_Z, ";
+  header += "Mag_X, ";
+  header += "Mag_Y, ";
+  header += "Mag_Z, ";
+  header += "Temp, ";
+  header += "Alt, ";
+  header += "Pressure, ";
+  header += "Heading, ";
+  
+  refSer.println(header);
+}
+
+void print_data(Stream &refSer) {
+  refSer.print(millis());refSer.print(",");
+  refSer.print(time_tag);refSer.print(",");
+  refSer.print(accel_X); refSer.print(", ");
+  refSer.print(accel_Y); refSer.print(", ");
+  refSer.print(accel_Z); refSer.print(", ");
+  refSer.print(mag_X); refSer.print(", ");
+  refSer.print(mag_Y); refSer.print(", ");
+  refSer.print(mag_Z); refSer.print(", ");
+  refSer.print(temp); refSer.print(", ");
+  refSer.print(alt); refSer.print(", ");
+  refSer.print(pressure); refSer.print(", ");
+  refSer.print(headingDegrees); refSer.println(", ");
+  
+}
+
+void update_sensors() {
+  sensor_time = millis();
+
+  temp = bmp.readTemperature();
+  pressure = bmp.readPressure();
+  alt = bmp.readAltitude();
+  SL_pressure = bmp.readSealevelPressure();
+  
+  accel.getEvent(&accel_event);
+  accel_X = accel_event.acceleration.x;
+  accel_Y = accel_event.acceleration.y;
+  accel_Z = accel_event.acceleration.z;
+
+  mag.getEvent(&mag_event);
+  mag_X = mag_event.magnetic.x;
+  mag_Y = mag_event.magnetic.y;
+  mag_Z = mag_event.magnetic.z;
+
+  float heading = atan2(mag_event.magnetic.y, mag_event.magnetic.x);
+  float headingDegrees = heading * 180/M_PI; 
+  
+  read_time = millis() - sensor_time;
+  time_tag = millis();
+  //Serial.print("Reading sensors took "); Serial.print(read_time); Serial.println("ms.");
+}
+
+  
+void setup() {
+  Serial.begin(115200);
+  //Serial1.begin(115200, SERIAL_8N1, D7, D6); // Serial port for logger
+  //Serial1.begin(57600, SERIAL_8N1, D8, D9,true);
+
+  //start the frsky sensors
+  hub.registerSensor(sensor_alt);
+  hub.begin();
+  
+  delay(2000);
+  if (!bmp.begin()) {
+	Serial.println("Could not find a valid BMP085 sensor, check wiring!");
+	while (1) {}
+  }
+
+  /* Initialise the sensor */
+  if(!mag.begin())
+  {
+    /* There was a problem detecting the HMC5883 ... check your connections */
+    Serial.println("Ooops, no HMC5883 detected ... Check your wiring!");
+    while(1);
+  }
+
+    if(!accel.begin())
+  {
+    /* There was a problem detecting the ADXL345 ... check your connections */
+    Serial.println("Ooops, no ADXL345 detected ... Check your wiring!");
+    while(1);
+  }
+
+  accel.setRange(ADXL345_RANGE_16_G);
+    
+  /* Display some basic information on this sensor */
+  //displaySensorDetails();
+  //print_header(Serial);
+  
+  //Print file header to log file.
+    //print_header(Serial1);
+}
+
+
+
+void loop() {
+  update_sensors(); 
+   
+  //print_data(Serial);
+  
+  
+  //Send Data to Logger
+  //print_data(Serial1);
+  //delay(100);
+
+  //if (Serial1.available()) {
+  //  Serial.print(Serial1.read(), HEX);
+  //  Serial.print(",");
+  //}
+
+
+  sensor_alt.value = alt;
+  hub.handle();
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+}
