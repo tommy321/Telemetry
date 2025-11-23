@@ -1,55 +1,39 @@
-#include <Arduino.h>
-#include <SPI.h>
-#include <Adafruit_BMP085.h>
 #include <Wire.h>
+#include <SPI.h>
 #include <Adafruit_Sensor.h>
-#include <Adafruit_HMC5883_U.h>
-#include <Adafruit_ADXL345_U.h>
+#include <Adafruit_BMP5xx.h>
+
+#include <Arduino.h>
+
+//#include <Adafruit_BMP085.h>
+//#include <Adafruit_HMC5883_U.h>
+//#include <Adafruit_ADXL345_U.h>
+
 #include <SPort.h>
 #include <SimpleKalmanFilter.h>
 #include <math.h>
 #include <TinyGPSPlus.h>
 
+#define SEALEVELPRESSURE_HPA (1013.25)
+Adafruit_BMP5xx bmp; // Create BMP5xx object
+bmp5xx_powermode_t desiredMode = BMP5XX_POWERMODE_NORMAL; // Cache desired power mode
 
-//This is a test change
 
-
-/*************************************************** 
-  This is an example for the BMP085 Barometric Pressure & Temp Sensor
-
-  Designed specifically to work with the Adafruit BMP085 Breakout 
-  ----> https://www.adafruit.com/products/391
-
-  These pressure and temperature sensors use I2C to communicate, 2 pins
-  are required to interface
-  Adafruit invests time and resources providing this open source code, 
-  please support Adafruit and open-source hardware by purchasing 
-  products from Adafruit!
-
-  Written by Limor Fried/Ladyada for Adafruit Industries.  
-  BSD license, all text above must be included in any redistribution
- ****************************************************/
-
-// Connect VCC of the BMP085 sensor to 3.3V (NOT 5.0V!)
-// Connect GND to Ground
-// Connect SCL to i2c clock - on '168/'328 Arduino Uno/Duemilanove/etc thats Analog 5
-// Connect SDA to i2c data - on '168/'328 Arduino Uno/Duemilanove/etc thats Analog 4
-// EOC is not used, it signifies an end of conversion
-// XCLR is a reset pin, also not used here
-
+/*Sutff for the old sensors
 Adafruit_BMP085 bmp;
 
-/* Assign a unique ID to this sensor at the same time */
+// Assign a unique ID to this sensor at the same time 
 Adafruit_HMC5883_Unified mag = Adafruit_HMC5883_Unified(12345);
 Adafruit_ADXL345_Unified accel = Adafruit_ADXL345_Unified(12345);
+*/
 
+//We don't have accel or mag anymore
+//sensors_event_t accel_event;
+//sensors_event_t mag_event;
 
-sensors_event_t accel_event;
-sensors_event_t mag_event;
-
-int sensor_read_timeout = 100; 
+int sensor_read_timeout = 20; 
 long last_sensor_read = 0;
-int log_write_timeout = 500;
+int log_write_timeout = 100;
 long last_log_write = 0; 
 
 //variables to store sensor data
@@ -60,11 +44,11 @@ float estimated_vsi;
 float temp;
 long pressure;
 long SL_pressure; 
-float accel_X, accel_Y, accel_Z;
-float mag_X, mag_Y, mag_Z;
+//float accel_X, accel_Y, accel_Z;
+//float mag_X, mag_Y, mag_Z;
 long time_tag; 
-float heading;
-float headingDegrees;
+//float heading;
+//float headingDegrees;
 
 
 
@@ -127,7 +111,7 @@ SimpleSPortSensor sensor_volts(0x0210);
 
 
 
-
+/* //mag sensor is gone
 void displaySensorDetails(void)
 {
   sensor_t sensor;
@@ -142,7 +126,8 @@ void displaySensorDetails(void)
   Serial.println("------------------------------------");
   Serial.println("");
   delay(500);
-}
+}*/
+
 
 void print_header(Stream &refSer) {
   String header = "";
@@ -183,6 +168,10 @@ void print_header(Stream &refSer) {
 void print_data(Stream &refSer) {
   refSer.print(millis());refSer.print(",");
   refSer.print(time_tag);refSer.print(",");
+  refSer.print(temp,5); refSer.print(", ");
+  refSer.print(pressure,5); refSer.print(", ");
+  refSer.print(alt,5); refSer.print(", ");
+  /*
   refSer.print(accel_X,5); refSer.print(", ");
   refSer.print(accel_Y,5); refSer.print(", ");
   refSer.print(accel_Z,5); refSer.print(", ");
@@ -208,12 +197,13 @@ void print_data(Stream &refSer) {
   refSer.print(gps.time.minute());refSer.print(", ");
   refSer.print(gps.time.second());refSer.print(", ");
   refSer.print(gps.time.centisecond());
-
+  */
 
 
     
   refSer.println("");
 }
+  
 
 float calc_vario(long time, float alt) {
   static long last_time;
@@ -222,13 +212,8 @@ float calc_vario(long time, float alt) {
   static float filter = 0.8;
 
   long delta_t = time - last_time;
-  
-
   estimated_vsi = (alt - last_alt)/(float)delta_t*1000;
-  
   //estimated_vsi = vsiFilter.updateEstimate(vsi);
-
-
   //vsi = last_vsi*filter +vsi*(1-filter);  
   //last_vsi = vsi;    
   //Serial.print(time); Serial.print("\t"); Serial.print(alt);
@@ -241,9 +226,9 @@ float calc_vario(long time, float alt) {
   return estimated_vsi;
 }
 
+/* will need to rewrite this
 void update_sensors() {
   sensor_time = millis();
-
   temp = bmp.readTemperature();
   pressure = bmp.readPressure();
   alt = bmp.readAltitude();
@@ -267,12 +252,211 @@ void update_sensors() {
   read_time = millis() - sensor_time;
   time_tag = millis();
   //Serial.print("Reading sensors took "); Serial.print(read_time); Serial.println("ms.");
+}*/
+
+void update_bmp581() {
+  if (bmp.performReading()) {
+    temp = bmp.temperature;
+    pressure = bmp.pressure;
+    alt = bmp.readAltitude(SEALEVELPRESSURE_HPA);
+
+  }
+
+}
+
+
+void setup_bmp581() {
+  //start the BMP581
+  // Try to initialize the sensor
+  // For I2C mode (default):
+  if (!bmp.begin(BMP5XX_DEFAULT_ADDRESS, &Wire)) {
+  // For SPI mode (uncomment the line below and comment out the I2C line above):
+  // if (!bmp.begin(BMP5XX_CS_PIN, &SPI)) {
+    Serial.println(F("Could not find a valid BMP5xx sensor, check wiring!"));
+    while (1) delay(10);
+  }
+  Serial.println(F("BMP5xx found!"));
+  Serial.println();
+// Demonstrate all setter functions with range documentation
+  Serial.println(F("=== Setting Up Sensor Configuration ==="));
+  
+  /* Temperature Oversampling Settings:
+   * BMP5XX_OVERSAMPLING_1X   - 1x oversampling (fastest, least accurate)
+   * BMP5XX_OVERSAMPLING_2X   - 2x oversampling  
+   * BMP5XX_OVERSAMPLING_4X   - 4x oversampling
+   * BMP5XX_OVERSAMPLING_8X   - 8x oversampling
+   * BMP5XX_OVERSAMPLING_16X  - 16x oversampling
+   * BMP5XX_OVERSAMPLING_32X  - 32x oversampling
+   * BMP5XX_OVERSAMPLING_64X  - 64x oversampling
+   * BMP5XX_OVERSAMPLING_128X - 128x oversampling (slowest, most accurate)
+   */
+  Serial.println(F("Setting temperature oversampling to 2X..."));
+  bmp.setTemperatureOversampling(BMP5XX_OVERSAMPLING_2X);
+
+  /* Pressure Oversampling Settings (same options as temperature):
+   * Higher oversampling = better accuracy but slower readings
+   * Recommended: 16X for good balance of speed/accuracy
+   */
+  Serial.println(F("Setting pressure oversampling to 16X..."));
+  bmp.setPressureOversampling(BMP5XX_OVERSAMPLING_16X);
+
+  /* IIR Filter Coefficient Settings:
+   * BMP5XX_IIR_FILTER_BYPASS   - No filtering (fastest response)
+   * BMP5XX_IIR_FILTER_COEFF_1  - Light filtering
+   * BMP5XX_IIR_FILTER_COEFF_3  - Medium filtering
+   * BMP5XX_IIR_FILTER_COEFF_7  - More filtering
+   * BMP5XX_IIR_FILTER_COEFF_15 - Heavy filtering
+   * BMP5XX_IIR_FILTER_COEFF_31 - Very heavy filtering
+   * BMP5XX_IIR_FILTER_COEFF_63 - Maximum filtering
+   * BMP5XX_IIR_FILTER_COEFF_127- Maximum filtering (slowest response)
+   */
+  Serial.println(F("Setting IIR filter to coefficient 3..."));
+  bmp.setIIRFilterCoeff(BMP5XX_IIR_FILTER_COEFF_3);
+
+  /* Output Data Rate Settings (Hz):
+   * BMP5XX_ODR_240_HZ, BMP5XX_ODR_218_5_HZ, BMP5XX_ODR_199_1_HZ
+   * BMP5XX_ODR_179_2_HZ, BMP5XX_ODR_160_HZ, BMP5XX_ODR_149_3_HZ
+   * BMP5XX_ODR_140_HZ, BMP5XX_ODR_129_8_HZ, BMP5XX_ODR_120_HZ
+   * BMP5XX_ODR_110_1_HZ, BMP5XX_ODR_100_2_HZ, BMP5XX_ODR_89_6_HZ
+   * BMP5XX_ODR_80_HZ, BMP5XX_ODR_70_HZ, BMP5XX_ODR_60_HZ, BMP5XX_ODR_50_HZ
+   * BMP5XX_ODR_45_HZ, BMP5XX_ODR_40_HZ, BMP5XX_ODR_35_HZ, BMP5XX_ODR_30_HZ
+   * BMP5XX_ODR_25_HZ, BMP5XX_ODR_20_HZ, BMP5XX_ODR_15_HZ, BMP5XX_ODR_10_HZ
+   * BMP5XX_ODR_05_HZ, BMP5XX_ODR_04_HZ, BMP5XX_ODR_03_HZ, BMP5XX_ODR_02_HZ
+   * BMP5XX_ODR_01_HZ, BMP5XX_ODR_0_5_HZ, BMP5XX_ODR_0_250_HZ, BMP5XX_ODR_0_125_HZ
+   */
+  Serial.println(F("Setting output data rate to 50 Hz..."));
+  bmp.setOutputDataRate(BMP5XX_ODR_50_HZ);
+
+  /* Power Mode Settings:
+   * BMP5XX_POWERMODE_STANDBY     - Standby mode (no measurements)
+   * BMP5XX_POWERMODE_NORMAL      - Normal mode (periodic measurements)
+   * BMP5XX_POWERMODE_FORCED      - Forced mode (single measurement then standby)
+   * BMP5XX_POWERMODE_CONTINUOUS  - Continuous mode (fastest measurements)
+   * BMP5XX_POWERMODE_DEEP_STANDBY - Deep standby (lowest power)
+   */
+  Serial.println(F("Setting power mode to normal..."));
+  desiredMode = BMP5XX_POWERMODE_NORMAL;
+  bmp.setPowerMode(desiredMode);
+
+  /* Enable/Disable Pressure Measurement:
+   * true  - Enable pressure measurement (default)
+   * false - Disable pressure measurement (temperature only)
+   */
+  Serial.println(F("Enabling pressure measurement..."));
+  bmp.enablePressure(true);
+
+  /* Interrupt Configuration:
+   * BMP5XX_INTERRUPT_PULSED / BMP5XX_INTERRUPT_LATCHED - Interrupt mode
+   * BMP5XX_INTERRUPT_ACTIVE_LOW / BMP5XX_INTERRUPT_ACTIVE_HIGH - Interrupt polarity  
+   * BMP5XX_INTERRUPT_PUSH_PULL / BMP5XX_INTERRUPT_OPEN_DRAIN - Interrupt drive
+   * BMP5XX_INTERRUPT_DATA_READY, BMP5XX_INTERRUPT_FIFO_FULL, etc. - Interrupt sources (can combine with |)
+   */
+  Serial.println(F("Configuring interrupt pin with data ready source..."));
+bmp.configureInterrupt(BMP5XX_INTERRUPT_LATCHED,
+                       BMP5XX_INTERRUPT_ACTIVE_HIGH, BMP5XX_INTERRUPT_PUSH_PULL, BMP5XX_INTERRUPT_DATA_READY, false);
+
+  Serial.println();
+  Serial.println(F("=== Current Sensor Configuration ==="));
+  
+  // Pretty print temperature oversampling inline
+  Serial.print(F("Temperature Oversampling: "));
+  switch(bmp.getTemperatureOversampling()) {
+    case BMP5XX_OVERSAMPLING_1X:   Serial.println(F("1X")); break;
+    case BMP5XX_OVERSAMPLING_2X:   Serial.println(F("2X")); break;
+    case BMP5XX_OVERSAMPLING_4X:   Serial.println(F("4X")); break;
+    case BMP5XX_OVERSAMPLING_8X:   Serial.println(F("8X")); break;
+    case BMP5XX_OVERSAMPLING_16X:  Serial.println(F("16X")); break;
+    case BMP5XX_OVERSAMPLING_32X:  Serial.println(F("32X")); break;
+    case BMP5XX_OVERSAMPLING_64X:  Serial.println(F("64X")); break;
+    case BMP5XX_OVERSAMPLING_128X: Serial.println(F("128X")); break;
+    default: Serial.println(F("Unknown")); break;
+  }
+  
+  // Pretty print pressure oversampling inline
+  Serial.print(F("Pressure Oversampling: "));
+  switch(bmp.getPressureOversampling()) {
+    case BMP5XX_OVERSAMPLING_1X:   Serial.println(F("1X")); break;
+    case BMP5XX_OVERSAMPLING_2X:   Serial.println(F("2X")); break;
+    case BMP5XX_OVERSAMPLING_4X:   Serial.println(F("4X")); break;
+    case BMP5XX_OVERSAMPLING_8X:   Serial.println(F("8X")); break;
+    case BMP5XX_OVERSAMPLING_16X:  Serial.println(F("16X")); break;
+    case BMP5XX_OVERSAMPLING_32X:  Serial.println(F("32X")); break;
+    case BMP5XX_OVERSAMPLING_64X:  Serial.println(F("64X")); break;
+    case BMP5XX_OVERSAMPLING_128X: Serial.println(F("128X")); break;
+    default: Serial.println(F("Unknown")); break;
+  }
+  
+  // Pretty print IIR filter coefficient inline
+  Serial.print(F("IIR Filter Coefficient: "));
+  switch(bmp.getIIRFilterCoeff()) {
+    case BMP5XX_IIR_FILTER_BYPASS:   Serial.println(F("Bypass (No filtering)")); break;
+    case BMP5XX_IIR_FILTER_COEFF_1:  Serial.println(F("1 (Light filtering)")); break;
+    case BMP5XX_IIR_FILTER_COEFF_3:  Serial.println(F("3 (Medium filtering)")); break;
+    case BMP5XX_IIR_FILTER_COEFF_7:  Serial.println(F("7 (More filtering)")); break;
+    case BMP5XX_IIR_FILTER_COEFF_15: Serial.println(F("15 (Heavy filtering)")); break;
+    case BMP5XX_IIR_FILTER_COEFF_31: Serial.println(F("31 (Very heavy filtering)")); break;
+    case BMP5XX_IIR_FILTER_COEFF_63: Serial.println(F("63 (Maximum filtering)")); break;
+    case BMP5XX_IIR_FILTER_COEFF_127:Serial.println(F("127 (Maximum filtering)")); break;
+    default: Serial.println(F("Unknown")); break;
+  }
+  
+  // Pretty print output data rate inline
+  Serial.print(F("Output Data Rate: "));
+  switch(bmp.getOutputDataRate()) {
+    case BMP5XX_ODR_240_HZ:   Serial.println(F("240 Hz")); break;
+    case BMP5XX_ODR_218_5_HZ: Serial.println(F("218.5 Hz")); break;
+    case BMP5XX_ODR_199_1_HZ: Serial.println(F("199.1 Hz")); break;
+    case BMP5XX_ODR_179_2_HZ: Serial.println(F("179.2 Hz")); break;
+    case BMP5XX_ODR_160_HZ:   Serial.println(F("160 Hz")); break;
+    case BMP5XX_ODR_149_3_HZ: Serial.println(F("149.3 Hz")); break;
+    case BMP5XX_ODR_140_HZ:   Serial.println(F("140 Hz")); break;
+    case BMP5XX_ODR_129_8_HZ: Serial.println(F("129.8 Hz")); break;
+    case BMP5XX_ODR_120_HZ:   Serial.println(F("120 Hz")); break;
+    case BMP5XX_ODR_110_1_HZ: Serial.println(F("110.1 Hz")); break;
+    case BMP5XX_ODR_100_2_HZ: Serial.println(F("100.2 Hz")); break;
+    case BMP5XX_ODR_89_6_HZ:  Serial.println(F("89.6 Hz")); break;
+    case BMP5XX_ODR_80_HZ:    Serial.println(F("80 Hz")); break;
+    case BMP5XX_ODR_70_HZ:    Serial.println(F("70 Hz")); break;
+    case BMP5XX_ODR_60_HZ:    Serial.println(F("60 Hz")); break;
+    case BMP5XX_ODR_50_HZ:    Serial.println(F("50 Hz")); break;
+    case BMP5XX_ODR_45_HZ:    Serial.println(F("45 Hz")); break;
+    case BMP5XX_ODR_40_HZ:    Serial.println(F("40 Hz")); break;
+    case BMP5XX_ODR_35_HZ:    Serial.println(F("35 Hz")); break;
+    case BMP5XX_ODR_30_HZ:    Serial.println(F("30 Hz")); break;
+    case BMP5XX_ODR_25_HZ:    Serial.println(F("25 Hz")); break;
+    case BMP5XX_ODR_20_HZ:    Serial.println(F("20 Hz")); break;
+    case BMP5XX_ODR_15_HZ:    Serial.println(F("15 Hz")); break;
+    case BMP5XX_ODR_10_HZ:    Serial.println(F("10 Hz")); break;
+    case BMP5XX_ODR_05_HZ:    Serial.println(F("5 Hz")); break;
+    case BMP5XX_ODR_04_HZ:    Serial.println(F("4 Hz")); break;
+    case BMP5XX_ODR_03_HZ:    Serial.println(F("3 Hz")); break;
+    case BMP5XX_ODR_02_HZ:    Serial.println(F("2 Hz")); break;
+    case BMP5XX_ODR_01_HZ:    Serial.println(F("1 Hz")); break;
+    case BMP5XX_ODR_0_5_HZ:   Serial.println(F("0.5 Hz")); break;
+    case BMP5XX_ODR_0_250_HZ: Serial.println(F("0.25 Hz")); break;
+    case BMP5XX_ODR_0_125_HZ: Serial.println(F("0.125 Hz")); break;
+    default: Serial.println(F("Unknown")); break;
+  }
+  
+  // Pretty print power mode inline
+  Serial.print(F("Power Mode: "));
+  switch(bmp.getPowerMode()) {
+    case BMP5XX_POWERMODE_STANDBY:     Serial.println(F("Standby")); break;
+    case BMP5XX_POWERMODE_NORMAL:      Serial.println(F("Normal")); break;
+    case BMP5XX_POWERMODE_FORCED:      Serial.println(F("Forced")); break;
+    case BMP5XX_POWERMODE_CONTINUOUS:  Serial.println(F("Continuous")); break;
+    case BMP5XX_POWERMODE_DEEP_STANDBY:Serial.println(F("Deep Standby")); break;
+    default: Serial.println(F("Unknown")); break;
+  }
+  
+  Serial.println();
 }
 
   
 void setup() {
   Serial.begin(115200);
-  Serial1.begin(38400, SERIAL_8N1, D7, D6); // Serial port for logger
+  //don't have logger anymore
+  //Serial1.begin(38400, SERIAL_8N1, D7, D6); // Serial port for logger
   //Serial1.begin(57600, SERIAL_8N1, D8, D9,true);
   Serial.print("Hello World!");
   //start the frsky sensors
@@ -286,35 +470,44 @@ void setup() {
   hub.begin();
   
   delay(2000);
-  if (!bmp.begin()) {
-	Serial.println("Could not find a valid BMP085 sensor, check wiring!");
-	while (1) {}
-  }
+  
+  //start the BMP581:
+  setup_bmp581();
 
-  /* Initialise the sensor */
+
+  /* we don't have the bmp anymore
+  if (!bmp.begin()) {
+	  Serial.println("Could not find a valid BMP085 sensor, check wiring!");
+	  while (1) {}
+  }*/
+
+  /* don't have a mag or accelerometer anymore 
   if(!mag.begin())
   {
-    /* There was a problem detecting the HMC5883 ... check your connections */
+    /* There was a problem detecting the HMC5883 ... check your connections 
     Serial.println("Ooops, no HMC5883 detected ... Check your wiring!");
     while(1);
   }
 
     if(!accel.begin())
   {
-    /* There was a problem detecting the ADXL345 ... check your connections */
+    /* There was a problem detecting the ADXL345 ... check your connections 
     Serial.println("Ooops, no ADXL345 detected ... Check your wiring!");
     while(1);
-  }
-
+  } 
   accel.setRange(ADXL345_RANGE_16_G);
-    
+  */
+
+  
+
+
   /* Display some basic information on this sensor */
   //displaySensorDetails();
   //print_header(Serial);
   
   //Print file header to log file.
-  print_header(Serial1);
-  //print_header(Serial);
+  //print_header(Serial1);
+  print_header(Serial);
   
 }
 
@@ -374,7 +567,8 @@ void displayInfo()
 void loop() {
   if (millis() > last_sensor_read + sensor_read_timeout) {
     task_start = micros();
-    update_sensors(); 
+    //update_sensors(); 
+    update_bmp581();
     task_timer = micros() - task_start;
     //Serial.print("sensor update took: ");
     //Serial.println(task_timer);
@@ -390,8 +584,8 @@ void loop() {
     task_start = micros();
     //write to the SD Card
     //Serial.print("Writing to SD Card");
-    print_data(Serial1);
-    //print_data(Serial);
+    //print_data(Serial1);
+    print_data(Serial);
     last_log_write = millis();
     task_timer = micros() - task_start;
     //Serial.print(" took: ");
