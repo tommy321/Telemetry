@@ -14,6 +14,14 @@
 #include <math.h>
 #include <TinyGPSPlus.h>
 
+//stuff for the SD Card
+#include "FS.h"
+#include "SD.h"
+#include "SPI.h"
+#include "sd_card_test.h"
+
+
+
 #define SEALEVELPRESSURE_HPA (1013.25)
 Adafruit_BMP5xx bmp; // Create BMP5xx object
 bmp5xx_powermode_t desiredMode = BMP5XX_POWERMODE_NORMAL; // Cache desired power mode
@@ -31,9 +39,9 @@ Adafruit_ADXL345_Unified accel = Adafruit_ADXL345_Unified(12345);
 //sensors_event_t accel_event;
 //sensors_event_t mag_event;
 
-int sensor_read_timeout = 20; 
+int sensor_read_timeout = 1000;//20; 
 long last_sensor_read = 0;
-int log_write_timeout = 100;
+int log_write_timeout = 1000;//100;
 long last_log_write = 0; 
 
 //variables to store sensor data
@@ -133,6 +141,11 @@ void print_header(Stream &refSer) {
   String header = "";
   header += "millis,";
   header += "time_tag,";
+  header += "Temp,";
+  header += "Pressure,";
+  header += "Alt,";
+
+  /*
   header += "Accel_X,";
   header += "Accel_Y,";
   header += "Accel_Z,";
@@ -162,6 +175,7 @@ void print_header(Stream &refSer) {
   header += "min,";
   header += "sec,";
   header += "centisec,";
+  */
   refSer.println(header);
 }
 
@@ -507,6 +521,10 @@ void setup() {
   
   //Print file header to log file.
   //print_header(Serial1);
+
+  //test the SD card
+  test_SD_card();
+
   print_header(Serial);
   
 }
@@ -585,7 +603,7 @@ void loop() {
     //write to the SD Card
     //Serial.print("Writing to SD Card");
     //print_data(Serial1);
-    print_data(Serial);
+    //print_data(Serial);
     last_log_write = millis();
     task_timer = micros() - task_start;
     //Serial.print(" took: ");
