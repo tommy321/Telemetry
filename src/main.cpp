@@ -4,6 +4,7 @@
 #include <Adafruit_BMP5xx.h>
 
 #include <Arduino.h>
+#include <string.h>
 
 //#include <Adafruit_BMP085.h>
 //#include <Adafruit_HMC5883_U.h>
@@ -466,6 +467,63 @@ bmp.configureInterrupt(BMP5XX_INTERRUPT_LATCHED,
   Serial.println();
 }
 
+
+std::string get_next_logfilename(fs::FS &fs, const char * dirname, uint8_t levels) {
+
+  uint8_t cardType = SD.cardType();
+  if(cardType == CARD_NONE){
+    Serial.println("No SD card attached");
+    
+  }
+  uint64_t cardSize = SD.cardSize() / (1024 * 1024);
+  Serial.printf("SD Card Size: %lluMB\n", cardSize);
+  //listDir(SD, "/", 0);
+  
+  File root = fs.open(dirname);
+  //if (~root) {
+  // Serial.println("Failed to Open Directory");
+  //}
+  //if(!root.isDirectory()){
+  //  Serial.println("Not a directory");
+  //  
+  //}
+
+  File file = root.openNextFile();
+  int lognumber = 0;  //if we have no existing logs we'll start at zero
+  while(file){
+    //check if the first three letters of the filename are "LOG"
+    std::string filename = file.name();
+    if (filename.length() >= 3) {
+      //Serial.println(filename.substr(0,3).c_str());
+      if (filename.substr(0, 3) == "LOG") {
+        //Serial.print(filename.c_str());
+        //Serial.print(" ");
+        //Serial.print(filename.find("LOG"));
+        //Serial.print(" ");
+        //Serial.print(filename.find("."));
+
+        //get the number out of the file name
+        std::string filenumber = filename.substr(3, 5);
+        //Serial.print(" ");
+        //Serial.println(std::stoi(filenumber));
+        if (lognumber < std::stoi(filenumber)) {
+          lognumber = std::stoi(filenumber);
+        }
+        
+      }
+    }
+    file = root.openNextFile();
+  }
+  lognumber++; //this is the next open log number
+  std::string lognumberstring = "00000";
+  lognumberstring.append(std::to_string(lognumber)); //add the new lognumber
+  lognumberstring = lognumberstring.substr(lognumberstring.length()-5, 5);
+  std::string new_filename = "/LOG";
+  new_filename.append(lognumberstring);
+  new_filename.append(".TXT");
+  return new_filename;
+
+}
   
 void setup() {
   Serial.begin(115200);
@@ -483,7 +541,7 @@ void setup() {
   hub.registerSensor(sensor_volts);
   hub.begin();
   
-  delay(2000);
+  //delay(2000);
   
   //start the BMP581:
   setup_bmp581();
@@ -523,8 +581,17 @@ void setup() {
   //print_header(Serial1);
 
   //test the SD card
-  test_SD_card();
+  //test_SD_card();
 
+  //get the lastest file name
+  
+  if(!SD.begin(D0)){
+    Serial.println("Card Mount Failed");
+    
+  }
+  std::string new_filename = get_next_logfilename(SD, "/", 0);
+  Serial.println(new_filename.c_str());
+  writeFile(SD, new_filename.c_str(), "Test content");
   print_header(Serial);
   
 }
