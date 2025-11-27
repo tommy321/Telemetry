@@ -6,6 +6,7 @@
 #include <Arduino.h>
 #include <string.h>
 
+
 //#include <Adafruit_BMP085.h>
 //#include <Adafruit_HMC5883_U.h>
 //#include <Adafruit_ADXL345_U.h>
@@ -40,7 +41,7 @@ Adafruit_ADXL345_Unified accel = Adafruit_ADXL345_Unified(12345);
 //sensors_event_t accel_event;
 //sensors_event_t mag_event;
 
-int sensor_read_timeout = 1000;//20; 
+int sensor_read_timeout = 100;//20; 
 long last_sensor_read = 0;
 int log_write_timeout = 1000;//100;
 long last_log_write = 0; 
@@ -72,6 +73,22 @@ unsigned long task_timer = 0;
 
 //gps object
 TinyGPSPlus gps;
+
+//sdcard stuff
+//buffer of data for writes
+struct SensorReadings {
+  long time_stamp;
+  float press;
+  float temp;
+  float altitude;
+};
+SensorReadings LastReading;
+std::string SDWriteString;
+char SDchar[512];
+int readingCounter = 0;
+std::string new_filename;
+
+
 
 
 sportData send_latlon(CustomSPortSensor* sensor_gps_latlon) {
@@ -218,8 +235,7 @@ void print_data(Stream &refSer) {
     
   refSer.println("");
 }
-  
-
+ 
 float calc_vario(long time, float alt) {
   static long last_time;
   static float last_alt;
@@ -271,10 +287,12 @@ void update_sensors() {
 
 void update_bmp581() {
   if (bmp.performReading()) {
+    sensor_time = millis();
     temp = bmp.temperature;
     pressure = bmp.pressure;
     alt = bmp.readAltitude(SEALEVELPRESSURE_HPA);
-
+    kf_alt = altFilter.updateEstimate(alt);
+    estimated_vsi = calc_vario(sensor_time, kf_alt);
   }
 
 }
@@ -589,10 +607,10 @@ void setup() {
     Serial.println("Card Mount Failed");
     
   }
-  std::string new_filename = get_next_logfilename(SD, "/", 0);
+  new_filename = get_next_logfilename(SD, "/", 0);
   Serial.println(new_filename.c_str());
-  writeFile(SD, new_filename.c_str(), "Test content");
-  print_header(Serial);
+  writeFile(SD, new_filename.c_str(), "***, msec, press, alt, temp, kf_alt, estimated_vsi");
+  //print_header(Serial);
   
 }
 
@@ -647,20 +665,74 @@ void displayInfo()
   }
 }
 
+void buildSDString(SensorReadings LastReading) {
+  std::string newdata;
 
+  newdata.append("***,\t");
+  newdata.append(std::to_string(LastReading.time_stamp));
+  newdata.append(",\t");
+  newdata.append(std::to_string(LastReading.press));
+  newdata.append(",\t");
+  newdata.append(std::to_string(LastReading.altitude));
+  newdata.append(",\t");
+  newdata.append(std::to_string(LastReading.temp));
+  newdata.append(",\t");
+  newdata.append(std::to_string(kf_alt));
+  newdata.append(",\t");
+  newdata.append(std::to_string(estimated_vsi));
+  newdata.append("\n");
+  //Serial.print(newdata.c_str());
+  SDWriteString.append(newdata);
+
+}
 
 void loop() {
   if (millis() > last_sensor_read + sensor_read_timeout) {
     task_start = micros();
     //update_sensors(); 
     update_bmp581();
+    last_sensor_read = millis();
+    //put the new data into the buffer
+    LastReading.time_stamp = last_sensor_read;
+    LastReading.temp = temp;
+    LastReading.altitude = alt;
+    LastReading.press = pressure;
+    readingCounter++;
     task_timer = micros() - task_start;
     //Serial.print("sensor update took: ");
     //Serial.println(task_timer);
-    last_sensor_read = millis();
+    //put the readings into the string for writing to the SD Card
+    buildSDString(LastReading);
+    
+    //Serial.println(new_filename.c_str());
+
+    if (SDWriteString.length() >= 512) {
+      //Serial.print("SDWriteString Length: ");
+      //Serial.println(SDWriteString.length());
+      //time to write to the SD Card
+      //Serial.println("Writing 512 Bytes to file...");
+      strcpy(SDchar, SDWriteString.substr(0, 511).c_str());
+      SDWriteString.erase(0,511);
+      //Serial.println("String to write:");
+      Serial.println(SDchar);
+      //Serial.print("File is: ");
+      //Serial.println(new_filename.c_str());
+      appendFile(SD, new_filename.c_str(), SDchar);
+      //open and write to the file
+    
+
+    }
+    
   }
 
-    
+
+  
+  /*
+  Need to: 
+  each time a take a reading put in the SDWrite Data structure
+  once I get 1000 readings
+  store them into the file in the card. 
+  */  
   
   
   //Send Data to Logger
@@ -699,420 +771,4 @@ void loop() {
   sensor_volts.value = 8.23 *100;
   
   hub.handle();
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 }
