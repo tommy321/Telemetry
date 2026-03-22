@@ -88,7 +88,38 @@ char SDchar[512];
 int readingCounter = 0;
 std::string new_filename;
 
+//Battery Analog sensor stuff
+const int BattVoltagePin = D2;
+long BattReadInterval = 1000;
+long LastBattRead = 0;
+int BattVoltageRaw = 0;
+float BattVoltageVolts = 0;
 
+
+void ReadBattery() {
+  if (LastBattRead < millis()) {
+    //Serial.print("Read Battery Now");
+    BattVoltageRaw = analogRead(BattVoltagePin);
+    //Serial.print("\t");
+    //Serial.print(BattVoltageRaw);
+
+
+    /*Calibration
+    8.2V -> 3700
+    7.7V -> 3372
+    7.65 -> 3353
+    7.56 -> 3300
+    0V   -> 0000
+    Conversion:
+    BattVolts = BattRaw * 0.002268043874
+    */
+    BattVoltageVolts = (float)BattVoltageRaw * 0.002268043874;
+    //Serial.print("\t");
+    //Serial.println(BattVoltageVolts);
+    LastBattRead = millis() + BattReadInterval;
+    
+  }
+}
 
 
 sportData send_latlon(CustomSPortSensor* sensor_gps_latlon) {
@@ -249,7 +280,7 @@ float calc_vario(long time, float alt) {
   //last_vsi = vsi;    
   //Serial.print(time); Serial.print("\t"); Serial.print(alt);
   //Serial.print("\t"); Serial.print(delta_t);
-  //Serial.print("\t");Serial.print(vsi);
+  //Serial.print("\t");Serial.print(vsi);                                                                                                                                                                                                                                                                                                                                                             
   //Serial.print("\t");Serial.println(estimated_vsi);
 
   last_time = time;
@@ -546,7 +577,7 @@ std::string get_next_logfilename(fs::FS &fs, const char * dirname, uint8_t level
 void setup() {
   Serial.begin(115200);
   //don't have logger anymore
-  //Serial1.begin(38400, SERIAL_8N1, D7, D6); // Serial port for logger
+  Serial1.begin(38400, SERIAL_8N1, D7, D6); // Serial port for logger
   //Serial1.begin(57600, SERIAL_8N1, D8, D9,true);
   Serial.print("Hello World!");
   //start the frsky sensors
@@ -609,7 +640,7 @@ void setup() {
   }
   new_filename = get_next_logfilename(SD, "/", 0);
   Serial.println(new_filename.c_str());
-  writeFile(SD, new_filename.c_str(), "***, msec, press, alt, temp, kf_alt, estimated_vsi");
+  writeFile(SD, new_filename.c_str(), "***, \tmsec, \tpress, \talt, \ttemp, \tkf_alt, \testimated_vsi, \tlat, \tlon, \tgps_alt, \tgps_speed, \tgps_course, \tgps_year, \tgps_month, \tgps_day, \tgps_hour, \tgps_min, \tgps_sec, \tgps_centisec, \tbatt_V   \n");
   //print_header(Serial);
   
 }
@@ -667,7 +698,6 @@ void displayInfo()
 
 void buildSDString(SensorReadings LastReading) {
   std::string newdata;
-
   newdata.append("***,\t");
   newdata.append(std::to_string(LastReading.time_stamp));
   newdata.append(",\t");
@@ -680,11 +710,40 @@ void buildSDString(SensorReadings LastReading) {
   newdata.append(std::to_string(kf_alt));
   newdata.append(",\t");
   newdata.append(std::to_string(estimated_vsi));
+  newdata.append(",\t");
+  newdata.append(std::to_string(gps.location.lat()));
+  newdata.append(",\t");
+  newdata.append(std::to_string(gps.location.lng()));
+  newdata.append(",\t");
+  newdata.append(std::to_string(gps.altitude.meters()));
+  newdata.append(",\t");
+  newdata.append(std::to_string(gps.speed.mps()));
+  newdata.append(",\t");
+  newdata.append(std::to_string(gps.course.deg()));
+  newdata.append(",\t");
+  newdata.append(std::to_string(gps.date.year()));
+  newdata.append(",\t");
+  newdata.append(std::to_string(gps.date.month()));
+  newdata.append(",\t");
+  newdata.append(std::to_string(gps.date.day()));
+  newdata.append(",\t");
+  newdata.append(std::to_string(gps.time.hour()));
+  newdata.append(",\t");
+  newdata.append(std::to_string(gps.time.minute()));
+  newdata.append(",\t");
+  newdata.append(std::to_string(gps.time.second()));
+  newdata.append(",\t");
+  newdata.append(std::to_string(gps.time.centisecond()));
+  newdata.append(",\t");
+  newdata.append(std::to_string(BattVoltageVolts));
   newdata.append("\n");
   //Serial.print(newdata.c_str());
   SDWriteString.append(newdata);
 
 }
+
+
+
 
 void loop() {
   if (millis() > last_sensor_read + sensor_read_timeout) {
@@ -706,7 +765,7 @@ void loop() {
     
     //Serial.println(new_filename.c_str());
 
-    if (SDWriteString.length() >= 512) {
+    if (SDWriteString.length() >= 1024) {
       //Serial.print("SDWriteString Length: ");
       //Serial.println(SDWriteString.length());
       //time to write to the SD Card
@@ -714,7 +773,7 @@ void loop() {
       strcpy(SDchar, SDWriteString.substr(0, 511).c_str());
       SDWriteString.erase(0,511);
       //Serial.println("String to write:");
-      Serial.println(SDchar);
+      //Serial.println(SDchar);
       //Serial.print("File is: ");
       //Serial.println(new_filename.c_str());
       appendFile(SD, new_filename.c_str(), SDchar);
@@ -749,6 +808,8 @@ void loop() {
     //Serial.println(task_timer);
   }
   
+
+  ReadBattery();
   //print_data(Serial);
   //delay(10);
 
@@ -756,11 +817,12 @@ void loop() {
     //Serial.print("Bytes available!");
     //Serial.print((char)Serial1.read());
     gps.encode(Serial1.read());
+    //displayInfo();
     sensor_gps_alt.value = gps.altitude.meters() * 100;
     sensor_gps_spd.value = gps.speed.knots();//gps.speed.mps() * 100;
     sensor_gps_cog.value = gps.course.deg() * 100;
     //if (gps.encode(Serial1.read()))
-      //displayInfo();
+    //  displayInfo();
     
   }//Serial.println(",");
 
@@ -768,7 +830,7 @@ void loop() {
   //displayInfo();
   sensor_alt.value = alt*100;
   sensor_vario.value = estimated_vsi*100;
-  sensor_volts.value = 8.23 *100;
+  sensor_volts.value = BattVoltageVolts * 100;
   
   hub.handle();
 }
