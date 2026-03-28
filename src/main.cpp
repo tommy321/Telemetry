@@ -29,17 +29,22 @@ Adafruit_BMP5xx bmp; // Create BMP5xx object
 bmp5xx_powermode_t desiredMode = BMP5XX_POWERMODE_NORMAL; // Cache desired power mode
 
 
-/*Sutff for the old sensors
-Adafruit_BMP085 bmp;
-
-// Assign a unique ID to this sensor at the same time 
-Adafruit_HMC5883_Unified mag = Adafruit_HMC5883_Unified(12345);
-Adafruit_ADXL345_Unified accel = Adafruit_ADXL345_Unified(12345);
+/*
+other things to write to the SD card
+how fast the loop is running? 
+how how long it takes to write to the SD card. 
 */
 
-//We don't have accel or mag anymore
-//sensors_event_t accel_event;
-//sensors_event_t mag_event;
+//timers
+long last_loop = 0;
+int loop_time = 0;
+long last_sd_write = 0;
+int sd_write_time = 0;
+long last_telemetry_time = 0;
+int telemetry_time = 0;
+long last_gps_time = 0;
+int gps_time = 0;
+
 
 int sensor_read_timeout = 100;//20; 
 long last_sensor_read = 0;
@@ -62,7 +67,7 @@ long time_tag;
 
 
 
-long sensor_time, read_time, t1, t2;
+long sensor_time;//, read_time, t1, t2;
 
 //KalmanFilter
 SimpleKalmanFilter vsiFilter(5, 5, 0.05);
@@ -84,13 +89,13 @@ struct SensorReadings {
 };
 SensorReadings LastReading;
 std::string SDWriteString;
-char SDchar[512];
+char SDchar[1024];
 int readingCounter = 0;
 std::string new_filename;
 
 //Battery Analog sensor stuff
 const int BattVoltagePin = D2;
-long BattReadInterval = 1000;
+long BattReadInterval = 500;
 long LastBattRead = 0;
 int BattVoltageRaw = 0;
 float BattVoltageVolts = 0;
@@ -113,8 +118,9 @@ void ReadBattery() {
     Conversion:
     BattVolts = BattRaw * 0.002268043874
     */
-    BattVoltageVolts = (float)BattVoltageRaw * 0.002268043874;
+    BattVoltageVolts = (float)BattVoltageRaw * 0.00213 + 0.229;
     //Serial.print("\t");
+    //
     //Serial.println(BattVoltageVolts);
     LastBattRead = millis() + BattReadInterval;
     
@@ -161,30 +167,6 @@ SimpleSPortSensor sensor_gps_alt(0x0820);
 SimpleSPortSensor sensor_gps_spd(0x0830);
 SimpleSPortSensor sensor_gps_cog(0x0840);
 SimpleSPortSensor sensor_volts(0x0210);
-
-
-
-
-
-
-
-/* //mag sensor is gone
-void displaySensorDetails(void)
-{
-  sensor_t sensor;
-  mag.getSensor(&sensor);
-  Serial.println("------------------------------------");
-  Serial.print  ("Sensor:       "); Serial.println(sensor.name);
-  Serial.print  ("Driver Ver:   "); Serial.println(sensor.version);
-  Serial.print  ("Unique ID:    "); Serial.println(sensor.sensor_id);
-  Serial.print  ("Max Value:    "); Serial.print(sensor.max_value); Serial.println(" uT");
-  Serial.print  ("Min Value:    "); Serial.print(sensor.min_value); Serial.println(" uT");
-  Serial.print  ("Resolution:   "); Serial.print(sensor.resolution); Serial.println(" uT");  
-  Serial.println("------------------------------------");
-  Serial.println("");
-  delay(500);
-}*/
-
 
 void print_header(Stream &refSer) {
   String header = "";
@@ -288,33 +270,62 @@ float calc_vario(long time, float alt) {
   return estimated_vsi;
 }
 
-/* will need to rewrite this
-void update_sensors() {
-  sensor_time = millis();
-  temp = bmp.readTemperature();
-  pressure = bmp.readPressure();
-  alt = bmp.readAltitude();
-  kf_alt = altFilter.updateEstimate(alt);
-  SL_pressure = bmp.readSealevelPressure();
-  estimated_vsi = calc_vario(sensor_time, kf_alt);
-  
-  accel.getEvent(&accel_event);
-  accel_X = accel_event.acceleration.x;
-  accel_Y = accel_event.acceleration.y;
-  accel_Z = accel_event.acceleration.z;
 
-  mag.getEvent(&mag_event);
-  mag_X = mag_event.magnetic.x;
-  mag_Y = mag_event.magnetic.y;
-  mag_Z = mag_event.magnetic.z;
 
-  float heading = atan2(mag_event.magnetic.y, mag_event.magnetic.x);
-  float headingDegrees = heading * 180/M_PI; 
-  
-  read_time = millis() - sensor_time;
-  time_tag = millis();
-  //Serial.print("Reading sensors took "); Serial.print(read_time); Serial.println("ms.");
-}*/
+
+
+
+void buildSDString(SensorReadings LastReading) {
+  std::string newdata;
+  newdata.append("***,\t");
+  newdata.append(std::to_string(LastReading.time_stamp));
+  newdata.append(",\t");
+  newdata.append(std::to_string(LastReading.press));
+  newdata.append(",\t");
+  newdata.append(std::to_string(LastReading.altitude));
+  newdata.append(",\t");
+  newdata.append(std::to_string(LastReading.temp));
+  newdata.append(",\t");
+  newdata.append(std::to_string(kf_alt));
+  newdata.append(",\t");
+  newdata.append(std::to_string(estimated_vsi));
+  newdata.append(",\t");
+  newdata.append(std::to_string(gps.location.lat()));
+  newdata.append(",\t");
+  newdata.append(std::to_string(gps.location.lng()));
+  newdata.append(",\t");
+  newdata.append(std::to_string(gps.altitude.meters()));
+  newdata.append(",\t");
+  newdata.append(std::to_string(gps.speed.mps()));
+  newdata.append(",\t");
+  newdata.append(std::to_string(gps.course.deg()));
+  newdata.append(",\t");
+  newdata.append(std::to_string(gps.date.year()));
+  newdata.append(",\t");
+  newdata.append(std::to_string(gps.date.month()));
+  newdata.append(",\t");
+  newdata.append(std::to_string(gps.date.day()));
+  newdata.append(",\t");
+  newdata.append(std::to_string(gps.time.hour()));
+  newdata.append(",\t");
+  newdata.append(std::to_string(gps.time.minute()));
+  newdata.append(",\t");
+  newdata.append(std::to_string(gps.time.second()));
+  newdata.append(",\t");
+  newdata.append(std::to_string(gps.time.centisecond()));
+  newdata.append(",\t");
+  newdata.append(std::to_string(BattVoltageVolts));
+  newdata.append("\t");
+  newdata.append(std::to_string(loop_time));
+  newdata.append("\t");
+  newdata.append(std::to_string(sd_write_time));
+  newdata.append("\t");
+  newdata.append(std::to_string(gps_time));
+  newdata.append("\n");
+  //Serial.print(newdata.c_str());
+  SDWriteString.append(newdata);
+
+}
 
 void update_bmp581() {
   if (bmp.performReading()) {
@@ -516,6 +527,73 @@ bmp.configureInterrupt(BMP5XX_INTERRUPT_LATCHED,
   Serial.println();
 }
 
+void read_bmp581() {
+  //read the BMP581 sensor. 
+  if (millis() > last_sensor_read + sensor_read_timeout) {
+    //Serial.println(loop_time);
+    task_start = micros();
+    //update_sensors(); 
+    update_bmp581();
+    last_sensor_read = millis();
+    //put the new data into the buffer
+    LastReading.time_stamp = last_sensor_read;
+    LastReading.temp = temp;
+    LastReading.altitude = alt;
+    LastReading.press = pressure;
+    readingCounter++;
+    task_timer = micros() - task_start;
+    //Serial.print("sensor update took: ");
+    //Serial.println(task_timer);
+    //put the readings into the string for writing to the SD Card
+    buildSDString(LastReading);
+    
+    //Serial.println(new_filename.c_str());
+  }
+
+}
+
+
+void handle_SD_Card() {
+  if (SDWriteString.length() >= 1024) { //write a bunch of bytes to the SD Card
+    last_sd_write = esp_timer_get_time();
+
+    //Serial.print("SDWriteString Length: ");
+    //Serial.println(SDWriteString.length());
+    //time to write to the SD Card
+    Serial.println("Writing 1024 Bytes to file...");
+    strcpy(SDchar, SDWriteString.substr(0, 1023).c_str());
+    SDWriteString.erase(0,1023);
+    Serial.println("String to write:");
+    Serial.println(SDchar);
+    //Serial.print("File is: ");
+    //Serial.println(new_filename.c_str());
+    appendFile(SD, new_filename.c_str(), SDchar);
+    //open and write to the file
+    sd_write_time = esp_timer_get_time() - last_sd_write;
+    //Serial.println(sd_write_time);
+
+  }
+}
+
+void handle_GPS() {
+  while (Serial1.available()) {
+    last_gps_time = esp_timer_get_time();
+
+
+    //Serial.print((char)Serial1.read());
+    gps.encode(Serial1.read());
+    //displayInfo();
+    sensor_gps_alt.value = gps.altitude.meters() * 100;
+    sensor_gps_spd.value = gps.speed.knots();//gps.speed.mps() * 100;
+    sensor_gps_cog.value = gps.course.deg() * 100;
+    //if (gps.encode(Serial1.read()))
+    //  displayInfo();
+    gps_time = esp_timer_get_time() - last_gps_time;
+    //Serial.println(gps_time);
+  }//Serial.println(",");
+
+}
+
 
 std::string get_next_logfilename(fs::FS &fs, const char * dirname, uint8_t levels) {
 
@@ -573,77 +651,6 @@ std::string get_next_logfilename(fs::FS &fs, const char * dirname, uint8_t level
   return new_filename;
 
 }
-  
-void setup() {
-  Serial.begin(115200);
-  //don't have logger anymore
-  Serial1.begin(38400, SERIAL_8N1, D7, D6); // Serial port for logger
-  //Serial1.begin(57600, SERIAL_8N1, D8, D9,true);
-  Serial.print("Hello World!");
-  //start the frsky sensors
-  hub.registerSensor(sensor_alt);
-  hub.registerSensor(sensor_vario);
-  hub.registerSensor(sensor_gps_latlon);
-  hub.registerSensor(sensor_gps_alt);
-  hub.registerSensor(sensor_gps_spd);
-  hub.registerSensor(sensor_gps_cog);
-  hub.registerSensor(sensor_volts);
-  hub.begin();
-  
-  //delay(2000);
-  
-  //start the BMP581:
-  setup_bmp581();
-
-
-  /* we don't have the bmp anymore
-  if (!bmp.begin()) {
-	  Serial.println("Could not find a valid BMP085 sensor, check wiring!");
-	  while (1) {}
-  }*/
-
-  /* don't have a mag or accelerometer anymore 
-  if(!mag.begin())
-  {
-    /* There was a problem detecting the HMC5883 ... check your connections 
-    Serial.println("Ooops, no HMC5883 detected ... Check your wiring!");
-    while(1);
-  }
-
-    if(!accel.begin())
-  {
-    /* There was a problem detecting the ADXL345 ... check your connections 
-    Serial.println("Ooops, no ADXL345 detected ... Check your wiring!");
-    while(1);
-  } 
-  accel.setRange(ADXL345_RANGE_16_G);
-  */
-
-  
-
-
-  /* Display some basic information on this sensor */
-  //displaySensorDetails();
-  //print_header(Serial);
-  
-  //Print file header to log file.
-  //print_header(Serial1);
-
-  //test the SD card
-  //test_SD_card();
-
-  //get the lastest file name
-  
-  if(!SD.begin(D0)){
-    Serial.println("Card Mount Failed");
-    
-  }
-  new_filename = get_next_logfilename(SD, "/", 0);
-  Serial.println(new_filename.c_str());
-  writeFile(SD, new_filename.c_str(), "***, \tmsec, \tpress, \talt, \ttemp, \tkf_alt, \testimated_vsi, \tlat, \tlon, \tgps_alt, \tgps_speed, \tgps_course, \tgps_year, \tgps_month, \tgps_day, \tgps_hour, \tgps_min, \tgps_sec, \tgps_centisec, \tbatt_V   \n");
-  //print_header(Serial);
-  
-}
 
 
 //gps test function
@@ -696,141 +703,75 @@ void displayInfo()
   }
 }
 
-void buildSDString(SensorReadings LastReading) {
-  std::string newdata;
-  newdata.append("***,\t");
-  newdata.append(std::to_string(LastReading.time_stamp));
-  newdata.append(",\t");
-  newdata.append(std::to_string(LastReading.press));
-  newdata.append(",\t");
-  newdata.append(std::to_string(LastReading.altitude));
-  newdata.append(",\t");
-  newdata.append(std::to_string(LastReading.temp));
-  newdata.append(",\t");
-  newdata.append(std::to_string(kf_alt));
-  newdata.append(",\t");
-  newdata.append(std::to_string(estimated_vsi));
-  newdata.append(",\t");
-  newdata.append(std::to_string(gps.location.lat()));
-  newdata.append(",\t");
-  newdata.append(std::to_string(gps.location.lng()));
-  newdata.append(",\t");
-  newdata.append(std::to_string(gps.altitude.meters()));
-  newdata.append(",\t");
-  newdata.append(std::to_string(gps.speed.mps()));
-  newdata.append(",\t");
-  newdata.append(std::to_string(gps.course.deg()));
-  newdata.append(",\t");
-  newdata.append(std::to_string(gps.date.year()));
-  newdata.append(",\t");
-  newdata.append(std::to_string(gps.date.month()));
-  newdata.append(",\t");
-  newdata.append(std::to_string(gps.date.day()));
-  newdata.append(",\t");
-  newdata.append(std::to_string(gps.time.hour()));
-  newdata.append(",\t");
-  newdata.append(std::to_string(gps.time.minute()));
-  newdata.append(",\t");
-  newdata.append(std::to_string(gps.time.second()));
-  newdata.append(",\t");
-  newdata.append(std::to_string(gps.time.centisecond()));
-  newdata.append(",\t");
-  newdata.append(std::to_string(BattVoltageVolts));
-  newdata.append("\n");
-  //Serial.print(newdata.c_str());
-  SDWriteString.append(newdata);
 
+
+
+
+
+
+void setup() {
+  Serial.begin(115200);
+  //don't have logger anymore
+  Serial1.begin(38400, SERIAL_8N1, D7, D6); // Serial port for GPS
+  Serial.print("Hello World!");
+  //start the frsky sensors
+  hub.registerSensor(sensor_alt);
+  hub.registerSensor(sensor_vario);
+  hub.registerSensor(sensor_gps_latlon);
+  hub.registerSensor(sensor_gps_alt);
+  hub.registerSensor(sensor_gps_spd);
+  hub.registerSensor(sensor_gps_cog);
+  hub.registerSensor(sensor_volts);
+  hub.begin();
+  
+  //delay(2000);
+  
+  //start the BMP581:
+  setup_bmp581();
+
+  
+
+  /* Display some basic information on this sensor */
+  //displaySensorDetails();
+  //print_header(Serial);
+  
+  //Print file header to log file.
+  //print_header(Serial1);
+
+  //test the SD card
+  //test_SD_card();
+
+  //get the lastest file name
+  
+  if(!SD.begin(D0)){
+    Serial.println("Card Mount Failed");
+  }
+  new_filename = get_next_logfilename(SD, "/", 0);
+  Serial.println(new_filename.c_str());
+  writeFile(SD, new_filename.c_str(),   "***, \tmsec, \tpress, \talt, \ttemp, \tkf_alt, \testimated_vsi, \tlat, \tlon, \tgps_alt, \tgps_speed, \tgps_course, \tgps_year, \tgps_month, \tgps_day, \tgps_hour, \tgps_min, \tgps_sec, \tgps_centisec, \tbatt_V, \tloop_time, \tSD_write_time, \tgps_time   \n");
+  //print_header(Serial);
+  
 }
 
-
-
-
 void loop() {
-  if (millis() > last_sensor_read + sensor_read_timeout) {
-    task_start = micros();
-    //update_sensors(); 
-    update_bmp581();
-    last_sensor_read = millis();
-    //put the new data into the buffer
-    LastReading.time_stamp = last_sensor_read;
-    LastReading.temp = temp;
-    LastReading.altitude = alt;
-    LastReading.press = pressure;
-    readingCounter++;
-    task_timer = micros() - task_start;
-    //Serial.print("sensor update took: ");
-    //Serial.println(task_timer);
-    //put the readings into the string for writing to the SD Card
-    buildSDString(LastReading);
-    
-    //Serial.println(new_filename.c_str());
+  last_loop = esp_timer_get_time();   
 
-    if (SDWriteString.length() >= 1024) {
-      //Serial.print("SDWriteString Length: ");
-      //Serial.println(SDWriteString.length());
-      //time to write to the SD Card
-      //Serial.println("Writing 512 Bytes to file...");
-      strcpy(SDchar, SDWriteString.substr(0, 511).c_str());
-      SDWriteString.erase(0,511);
-      //Serial.println("String to write:");
-      //Serial.println(SDchar);
-      //Serial.print("File is: ");
-      //Serial.println(new_filename.c_str());
-      appendFile(SD, new_filename.c_str(), SDchar);
-      //open and write to the file
-    
-
-    }
-    
-  }
-
-
+  read_bmp581();
   
-  /*
-  Need to: 
-  each time a take a reading put in the SDWrite Data structure
-  once I get 1000 readings
-  store them into the file in the card. 
-  */  
+  handle_SD_Card();
   
-  
-  //Send Data to Logger
-  
-  if (millis() > last_log_write + log_write_timeout) {
-    task_start = micros();
-    //write to the SD Card
-    //Serial.print("Writing to SD Card");
-    //print_data(Serial1);
-    //print_data(Serial);
-    last_log_write = millis();
-    task_timer = micros() - task_start;
-    //Serial.print(" took: ");
-    //Serial.println(task_timer);
-  }
-  
-
   ReadBattery();
-  //print_data(Serial);
-  //delay(10);
 
-  while (Serial1.available()) {
-    //Serial.print("Bytes available!");
-    //Serial.print((char)Serial1.read());
-    gps.encode(Serial1.read());
-    //displayInfo();
-    sensor_gps_alt.value = gps.altitude.meters() * 100;
-    sensor_gps_spd.value = gps.speed.knots();//gps.speed.mps() * 100;
-    sensor_gps_cog.value = gps.course.deg() * 100;
-    //if (gps.encode(Serial1.read()))
-    //  displayInfo();
-    
-  }//Serial.println(",");
+  handle_GPS();
 
 
   //displayInfo();
   sensor_alt.value = alt*100;
   sensor_vario.value = estimated_vsi*100;
   sensor_volts.value = BattVoltageVolts * 100;
-  
+
   hub.handle();
+
+  loop_time = esp_timer_get_time() - last_loop; 
+
 }
