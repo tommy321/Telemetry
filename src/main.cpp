@@ -410,7 +410,7 @@ void setup_bmp581() {
    * BMP5XX_POWERMODE_DEEP_STANDBY - Deep standby (lowest power)
    */
   Serial.println(F("Setting power mode to normal..."));
-  desiredMode = BMP5XX_POWERMODE_NORMAL;
+  desiredMode = BMP5XX_POWERMODE_CONTINUOUS;
   bmp.setPowerMode(desiredMode);
 
   /* Enable/Disable Pressure Measurement:
