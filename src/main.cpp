@@ -409,7 +409,7 @@ void setup_bmp581() {
    * BMP5XX_POWERMODE_CONTINUOUS  - Continuous mode (fastest measurements)
    * BMP5XX_POWERMODE_DEEP_STANDBY - Deep standby (lowest power)
    */
-  Serial.println(F("Setting power mode to normal..."));
+  Serial.println(F("Setting power mode to Continuous Mode..."));
   desiredMode = BMP5XX_POWERMODE_CONTINUOUS;
   bmp.setPowerMode(desiredMode);
 
